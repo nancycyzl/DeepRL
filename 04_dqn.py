@@ -229,7 +229,7 @@ def main():
 
     args.device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
 
-    env = gym.make(args.env, render_mode="human")
+    env = gym.make(args.env, render_mode="human")    # "rgb_array" / "human"
     set_seed(args)
     agent = DQN(dim_state=args.dim_state, num_action=args.num_action, discount=args.discount)
     agent.Q.to(args.device)
