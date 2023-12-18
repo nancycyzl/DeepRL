@@ -41,10 +41,11 @@ class DQN:
 
     def get_action(self, state):
         qvals = self.Q(state)
-        return qvals.argmax()
+        return qvals.argmax()    # return the index of the maximum Q value -> the index of action to be taken
 
     def compute_loss(self, s_batch, a_batch, r_batch, d_batch, next_s_batch):
         # 计算s_batch，a_batch对应的值。
+        # gather: selects the Q value corresponding to the action taken (a_batch)
         qvals = self.Q(s_batch).gather(1, a_batch.unsqueeze(1)).squeeze()
         # 使用target Q网络计算next_s_batch对应的值。
         next_qvals, _ = self.target_Q(next_s_batch).detach().max(dim=1)
@@ -123,8 +124,10 @@ def train(args, env, agent):
     agent.Q.train()
     state, _ = env.reset(seed=args.seed)
     for i in range(args.max_steps):
+        # exploration
         if np.random.rand() < epsilon or i < args.warmup_steps:
             action = env.action_space.sample()
+        # choose the action based on policy (prob distribution of each action)
         else:
             action = agent.get_action(torch.from_numpy(state))
             action = action.item()
@@ -136,7 +139,7 @@ def train(args, env, agent):
         replay_buffer.push(state, action, reward, done, next_state)
         state = next_state
 
-        if done is True:
+        if done is True:   # one episode is done
             log["episode_reward"].append(episode_reward)
             log["episode_length"].append(episode_length)
 
@@ -148,6 +151,7 @@ def train(args, env, agent):
                 torch.save(agent.Q.state_dict(), save_path)
                 max_episode_reward = episode_reward
 
+            # start another episode --> reset env
             episode_reward = 0
             episode_length = 0
             epsilon = max(epsilon - (epsilon_max - epsilon_min) * args.epsilon_decay, 1e-1)
@@ -189,7 +193,7 @@ def eval(args, env, agent):
     episode_length = 0
     episode_reward = 0
     state, _ = env.reset()
-    for i in range(5000):
+    for i in range(1000):
         episode_length += 1
         action = agent.get_action(torch.from_numpy(state)).item()
         next_state, reward, terminated, truncated, _ = env.step(action)
@@ -225,7 +229,7 @@ def main():
 
     args.device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
 
-    env = gym.make(args.env)
+    env = gym.make(args.env, render_mode="human")
     set_seed(args)
     agent = DQN(dim_state=args.dim_state, num_action=args.num_action, discount=args.discount)
     agent.Q.to(args.device)
