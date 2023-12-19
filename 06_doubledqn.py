@@ -48,6 +48,14 @@ class DoubleDQN:
         loss = F.mse_loss(r_batch + self.discount * next_qvals * (1 - d_batch), qvals)
         return loss
 
+    # the above loss calculation seems incorrect... (it is the same as DQN)
+    # def compute_loss(self, s_batch, a_batch, r_batch, d_batch, next_s_batch):
+    #     # Compute current Q value based on current states and actions.
+    #     qvals = self.model(s_batch).gather(1, a_batch.unsqueeze(1)).squeeze()
+    #     next_s_action = self.model(next_s_batch).argmax(dim=1)
+    #     next_qvals, _ = self.target_model(next_s_batch).gather(1, next_s_action.unsqueeze(1)).detach().max(dim=1)
+    #     loss = F.mse_loss(r_batch + self.discount * next_qvals * (1 - d_batch), qvals)
+    #     return loss
 
 @dataclass
 class ReplayBuffer:
@@ -107,6 +115,7 @@ def train(args, env, agent):
     log_ep_rewards = []
     log_losses = [0]
 
+    # why need to set both network to train mode?
     agent.model.train()
     agent.target_model.train()
     agent.model.zero_grad()
@@ -116,8 +125,8 @@ def train(args, env, agent):
         if np.random.rand() < epsilon or i < args.warmup_steps:
             action = env.action_space.sample()
         else:
-            action = agent.get_action(torch.from_numpy(state))
-            action = action.item()
+            action = agent.get_action(torch.from_numpy(state).to(args.device))
+            action = action.item()   # use model to get action
         next_state, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
         episode_reward += reward
@@ -150,11 +159,11 @@ def train(args, env, agent):
 
         if i > args.warmup_steps:
             bs, ba, br, bd, bns = replay_buffer.sample(n=args.batch_size)
-            bs = torch.tensor(bs, dtype=torch.float32)
-            ba = torch.tensor(ba, dtype=torch.long)
-            br = torch.tensor(br, dtype=torch.float32)
-            bd = torch.tensor(bd, dtype=torch.float32)
-            bns = torch.tensor(bns, dtype=torch.float32)
+            bs = torch.tensor(np.array(bs), dtype=torch.float32).to(args.device)
+            ba = torch.tensor(ba, dtype=torch.long).to(args.device)
+            br = torch.tensor(br, dtype=torch.float32).to(args.device)
+            bd = torch.tensor(bd, dtype=torch.float32).to(args.device)
+            bns = torch.tensor(bns, dtype=torch.float32).to(args.device)
 
             loss = agent.compute_loss(bs, ba, br, bd, bns)
             loss.backward()
@@ -188,7 +197,7 @@ def eval(args, env, agent):
     state, _ = env.reset()
     for i in range(5000):
         episode_length += 1
-        action = agent.get_action(torch.from_numpy(state)).item()
+        action = agent.get_action(torch.from_numpy(state).to(args.device)).item()
         next_state, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
         episode_reward += reward
@@ -222,10 +231,11 @@ def main():
 
     args.device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
 
-    env = gym.make(args.env)
+    env = gym.make(args.env, render_mode="rgb_array")   # # "rgb_array" / "human"
     set_seed(args)
     agent = DoubleDQN(dim_obs=args.dim_obs, num_act=args.num_act, discount=args.discount)
     agent.model.to(args.device)
+    agent.target_model.to(args.device)
 
     if args.do_train:
         train(args, env, agent)
